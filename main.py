@@ -105,3 +105,30 @@ def analyze_cv(tokenizer, model, cv_text):
         
     )
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+def generate_question(tokenizer, model, cv_data, question_type):
+    type_prompts = {
+        "technical": f"""<s>[INST] Based on these technical skills: {cv_data['skills']},
+                        generate a specific technical interview question about their expertise.
+                        Focus on their strongest skill. [/INST]</s>""",
+        
+        "behavioral": f"""<s>[INST] Given this work experience: {cv_data['experience']}
+                         and these soft skills: {cv_data['soft_skills']},
+                         generate a behavioral interview question about their teamwork or leadership. [/INST]</s>""",
+        
+        "motivation": f"""<s>[INST] Considering their background: {cv_data['education']}
+                         and achievements: {cv_data['projects']},
+                         generate a question about their career goals and motivation. [/INST]</s>"""
+    }
+    
+    prompt = type_prompts.get(question_type, type_prompts["technical"])
+    inputs = tokenizer(prompt, return_tensors="pt", max_length=1024, truncation=True)
+    outputs = model.generate(
+        **inputs,
+        max_new_tokens=64,
+        temperature=0.5,
+        top_p=0.9,
+        do_sample=True,
+        pad_token_id=tokenizer.pad_token_id
+    )
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
