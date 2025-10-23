@@ -132,3 +132,78 @@ def generate_question(tokenizer, model, cv_data, question_type):
         pad_token_id=tokenizer.pad_token_id
     )
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+
+def main():
+    roberta_tokenizer, roberta_model, mistral_tokenizer, mistral_model, embedder = load_local_models()
+
+    try:
+        with open("cv.txt", "r", encoding="utf-8") as f:
+            cv_text = f.read()
+    except FileNotFoundError:
+        print("CV file not found!")
+        return
+
+    # CV információk kinyerése
+    cv_questions = {
+        "technical": "What technical skills and experience does the candidate have?",
+        "soft_skills": "What soft skills and team experience does the candidate have?",
+        "achievements": "What are the candidate's main achievements and projects?"
+    }
+
+    cv_info = {}
+    for key, question in cv_questions.items():
+        cv_info[key] = extract_cv_info(roberta_tokenizer, roberta_model, cv_text, question)
+
+    # Analyze CV using structured prompt
+    cv_data = analyze_cv(mistral_tokenizer, mistral_model, cv_text)
+    
+    # Interjú kérdések generálása
+    question_types = ["technical", "behavioral", "motivation"]
+    all_answers = []
+
+    for q_type in question_types:
+        question = generate_question(mistral_tokenizer, mistral_model, cv_data, q_type)
+        
+        print(f"\n--- {q_type.capitalize()} Question ---")
+        print(question)
+        
+        user_answer = input("\nYour answer (in Hungarian): ")
+        
+        # Example answer generation with Mistral
+        example_prompt = f"""<s>[INST] Provide a professional answer to this interview question: {question} [/INST]</s>"""
+        inputs = mistral_tokenizer(example_prompt, return_tensors="pt", max_length=1024, truncation=True)
+        outputs = mistral_model.generate(
+            **inputs,
+            max_new_tokens=150,
+            temperature=0.6,
+            top_p=0.9
+        )
+        ideal_answer = mistral_tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        # Válasz értékelése
+        embeddings = embedder.encode([user_answer, ideal_answer], convert_to_tensor=True)
+        similarity = util.cos_sim(embeddings[0], embeddings[1]).item()
+        
+        all_answers.append({
+            'question': question,
+            'user_answer': user_answer,
+            'ideal_answer': ideal_answer,
+            'score': similarity
+        })
+        
+        print(f"\nScore: {similarity:.2%}")
+        if similarity > 0.8:
+            print("Excellent answer!")
+        elif similarity > 0.6:
+            print("Good answer, but could be more specific.")
+        else:
+            print("Consider providing more concrete examples.")
+
+    # Overall evaluation
+    final_score = sum(a['score'] for a in all_answers) / len(all_answers)
+    print(f"\nOverall Interview Performance: {final_score:.2%}")
+
+if __name__ == "__main__":
+    main()
+
